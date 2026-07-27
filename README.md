@@ -1,1 +1,1 @@
-# school-infor
+# school-inform
