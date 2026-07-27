@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>학교 통합 정보 포털 (School Information Portal)</title>
+  
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            primary: '#2563EB',
+            secondary: '#3B82F6',
+            success: '#22C55E',
+            warning: '#FACC15',
+            danger: '#EF4444',
+            bgLight: '#F5F7FA',
+            charcoal: '#3A3A3A',
+            personalBg: '#E0F2FE',
+            dayMon: '#EF4444',
+            dayTue: '#F97316',
+            dayWed: '#FACC15',
+            dayThu: '#22C55E',
+            dayFri: '#3B82F6',
+          },
+          borderRadius: {
+            'card': '20px',
+          },
+          boxShadow: {
+            'soft': '0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.01)',
+          }
+        }
+      }
+    }
+  </script>
+  
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <style>
+    @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+    body {
+      font-family: 'Pretendard', sans-serif;
+      background-color: #F5F7FA;
+    }
+    .glass-header {
+      background: rgba(255, 255, 255, 0.75);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+    }
+    .dark .glass-header {
+      background: rgba(30, 41, 59, 0.75);
+    }
+  </style>
+</head>
+<body class="bg-[#F5F7FA] dark:bg-slate-900 text-slate-800 dark:text-slate-100 min-h-screen transition-colors duration-200">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useMemo, useRef } = React;
+
+    // --- 전국 교육청 리스트 ---
+    const EDUCATION_OFFICES = [
+      { code: 'B10', name: '서울특별시교육청' },
+      { code: 'C10', name: '부산광역시교육청' },
+      { code: 'D10', name: '대구광역시교육청' },
+      { code: 'E10', name: '인천광역시교육청' },
+      { code: 'F10', name: '광주광역시교육청' },
+      { code: 'G10', name: '대전광역시교육청' },
+      { code: 'H10', name: '울산광역시교육청' },
+      { code: 'I10', name: '세종특별자치시교육청' },
+      { code: 'J10', name: '경기도교육청' },
+      { code: 'K10', name: '강원특별자치도교육청' },
+      { code: 'M10', name: '충청북도교육청' },
+      { code: 'N10', name: '충청남도교육청' },
+      { code: 'P10', name: '전북특별자치도교육청' },
+      { code: 'Q10', name: '전라남도교육청' },
+      { code: 'R10', name: '경상북도교육청' },
+      { code: 'S10', name: '경상남도교육청' },
+      { code: 'T10', name: '제주특별자치도교육청' }
+    ];
+
+    function App() {
+      // --- 상태 정의 ---
+      const [apiKey, setApiKey] = useState(() => localStorage.getItem('NEIS_API_KEY') || '');
+      const [darkMode, setDarkMode] = useState(() => localStorage.getItem('DARK_MODE') === 'true');
+      const [showSettings, setShowSettings] = useState(false);
+      const [showNotifications, setShowNotifications] = useState(false);
+      const [showPersonalModal, setShowPersonalModal] = useState(false);
+
+      // 검색 관련
+      const [selectedOffice, setSelectedOffice] = useState(EDUCATION_OFFICES[0].code);
+      const [searchQuery, setSearchQuery] = useState('');
+      const [schoolList, setSchoolList] = useState([]);
+      const [selectedSchool, setSelectedSchool] = useState(() => {
+        const saved = localStorage.getItem('SELECTED_SCHOOL');
+        return saved ? JSON.parse(saved) : null;
+      });
+
+      // 데이터 관련
+      const [currentDate, setCurrentDate] = useState(new Date());
+      const [selectedDateStr, setSelectedDateStr] = useState(new Date().toISOString().split('T')[0]);
+      const [schoolSchedule, setSchoolSchedule] = useState([]);
+      const [weeklyMeals, setWeeklyMeals] = useState([]);
+      const [loading, setLoading] = useState(false);
+
+      // 개인 데이터 & 알림
+      const [personalEvents, setPersonalEvents] = useState(() => {
+        return JSON.parse(localStorage.getItem('PERSONAL_EVENTS') || '[]');
+      });
+      const [favoriteMeals, setFavoriteMeals] = useState(() => {
+        return JSON.parse(localStorage.getItem('FAVORITE_MEALS') || '[]');
+      });
+      const [notifications, setNotifications] = useState(() => {
+        return JSON.parse(localStorage.getItem('APP_NOTIFICATIONS') || '[]');
+      });
+      const [toast, setToast] = useState(null);
+
+      // 다크모드 동기화
+      useEffect(() => {
+        if (darkMode) {
+          document.documentElement.classList.add('dark');
+        } else {
+          document.documentElement.classList.remove('dark');
+        }
+        localStorage.setItem('DARK_MODE', darkMode);
+      }, [darkMode]);
+
+      // LocalStorage Sync
+      useEffect(() => {
+        localStorage.setItem('PERSONAL_EVENTS', JSON.stringify(personalEvents));
+      }, [personalEvents]);
+
+      useEffect(() => {
+        localStorage.setItem('FAVORITE_MEALS', JSON.stringify(favoriteMeals));
+      }, [favoriteMeals]);
+
+      useEffect(() => {
+        localStorage.setItem('APP_NOTIFICATIONS', JSON.stringify(notifications));
+      }, [notifications]);
+
+      // Lucide Icons 초기화
+      useEffect(() => {
+        if (window.lucide) {
+          window.lucide.createIcons();
+        }
+      });
+
+      // --- Toast 생성기 ---
+      const showToast = (msg) => {
+        setToast(msg);
+        setTimeout(() => setToast(null), 3000);
+      };
+
+      // --- 알림 처리 스케줄러 (하루 전 / 당일 알림) ---
+      useEffect(() => {
+        if ('Notification' in window && Notification.permission === 'default') {
+          Notification.requestPermission();
+        }
+
+        const checkEventNotifications = () => {
+          const todayStr = new Date().toISOString().split('T')[0];
+          
+          const tomorrow = new Date();
+          tomorrow.setDate(tomorrow.getDate() + 1);
+          const tomorrowStr = tomorrow.toISOString().split('T')[0];
+
+          personalEvents.forEach(evt => {
+            // 당일 알림
+            if (evt.date === todayStr && evt.notifyToday && !evt.notifiedToday) {
+              triggerNotification(`🔔 오늘 일정: ${evt.title}`, evt.memo || '오늘 예정된 일정이 있습니다.');
+              evt.notifiedToday = true;
+            }
+            // 하루 전 알림
+            if (evt.date === tomorrowStr && evt.notifyPrev && !evt.notifiedPrev) {
+              triggerNotification(`📅 내일 일정: ${evt.title}`, '내일 예정된 개인 일정을 확인해보세요!');
+              evt.notifiedPrev = true;
+            }
+          });
+          setPersonalEvents([...personalEvents]);
+        };
+
+        checkEventNotifications();
+        const interval = setInterval(checkEventNotifications, 60000); // 1분 간격 체크
+        return () => clearInterval(interval);
+      }, []);
+
+      const triggerNotification = (title, body) => {
+        // 1. Toast
+        showToast(`${title} - ${body}`);
+        
+        // 2. Browser Notification API
+        if ('Notification' in window && Notification.permission === 'granted') {
+          new Notification(title, { body });
+        }
+
+        // 3. Notification Center
+        const newNoti = {
+          id: Date.now(),
+          title,
+          body,
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          read: false
+        };
+        setNotifications(prev => [newNoti, ...prev]);
+      };
+
+      // --- 학교 검색 API ---
+      const handleSchoolSearch = async () => {
+        if (!searchQuery.trim()) return;
+        setLoading(true);
+
+        try {
+          const res = await fetch(`/api/nesi?endpoint=schoolInfo&ATPT_OFCDC_SC_CODE=${selectedOffice}&SCHUL_NM=${encodeURIComponent(searchQuery)}`, {
+            headers: apiKey ? { 'x-neis-key': apiKey } : {}
+          });
+          const data = await res.json();
+          if (data.schoolInfo && data.schoolInfo[1]?.row) {
+            setSchoolList(data.schoolInfo[1].row);
+          } else {
+            setSchoolList([]);
+            showToast('검색 결과가 없습니다.');
+          }
+        } catch (err) {
+          showToast('학교 정보 조회 중 오류가 발생했습니다.');
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      // --- 학교 선택 시 학사일정 및 급식 로드 ---
+      const selectSchool = (school) => {
+        setSelectedSchool(school);
+        localStorage.setItem('SELECTED_SCHOOL', JSON.stringify(school));
+        setSchoolList([]);
+        fetchSchoolData(school);
+      };
+
+      const fetchSchoolData = async (school) => {
+        setLoading(true);
+        const yearMonth = currentDate.toISOString().slice(0,7).replace('-','');
+
+        try {
+          // 학사일정
+          const schedRes = await fetch(`/api/nesi?endpoint=SchoolSchedule&ATPT_OFCDC_SC_CODE=${school.ATPT_OFCDC_SC_CODE}&SD_SCHUL_CODE=${school.SD_SCHUL_CODE}&AA_YMD=${yearMonth}`, {
+            headers: apiKey ? { 'x-neis-key': apiKey } : {}
+          });
+          const schedData = await schedRes.json();
+          if (schedData.SchoolSchedule && schedData.SchoolSchedule[1]?.row) {
+            setSchoolSchedule(schedData.SchoolSchedule[1].row);
+          } else {
+            setSchoolSchedule([]);
+          }
+
+          // 주간 급식
+          const mealRes = await fetch(`/api/nesi?endpoint=mealServiceDietInfo&ATPT_OFCDC_SC_CODE=${school.ATPT_OFCDC_SC_CODE}&SD_SCHUL_CODE=${school.SD_SCHUL_CODE}`, {
+            headers: apiKey ? { 'x-neis-key': apiKey } : {}
+          });
+          const mealData = await mealRes.json();
+          if (mealData.mealServiceDietInfo && mealData.mealServiceDietInfo[1]?.row) {
+            setWeeklyMeals(mealData.mealServiceDietInfo[1].row);
+          } else {
+            setWeeklyMeals([]);
+          }
+        } catch (err) {
+          showToast('데이터를 불러오지 못했습니다.');
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      useEffect(() => {
+        if (selectedSchool) {
+          fetchSchoolData(selectedSchool);
+        }
+      }, [currentDate]);
+
+      // --- 개인 일정 추가 함수 ---
+      const handleAddPersonalEvent = (e) => {
+        e.preventDefault();
+        const formData = new FormData(e.target);
+        const newEvt = {
+          id: Date.now(),
+          title: formData.get('title'),
+          date: formData.get('date'),
+          memo: formData.get('memo'),
+          notifyPrev: formData.get('notifyPrev') === 'on',
+          notifyToday: formData.get('notifyToday') === 'on',
+          notifiedPrev: false,
+          notifiedToday: false,
+        };
+
+        setPersonalEvents([...personalEvents, newEvt]);
+        setShowPersonalModal(false);
+        showToast('개인 일정이 추가되었습니다.');
+      };
+
+      // --- 급식 즐겨찾기 토글 ---
+      const toggleFavoriteMeal = (dishName) => {
+        const cleanName = dishName.replace(/[0-9.()]/g, '').trim();
+        if (favoriteMeals.includes(cleanName)) {
+          setFavoriteMeals(favoriteMeals.filter(m => m !== cleanName));
+        } else {
+          setFavoriteMeals([...favoriteMeals, cleanName]);
+          showToast(`'${cleanName}' 메뉴가 즐겨찾기에 등록되었습니다.`);
+        }
+      };
+
+      // --- 캘린더 계산 알고리즘 ---
+      const calendarDays = useMemo(() => {
+        const year = currentDate.getFullYear();
+        const month = currentDate.getMonth();
+        const firstDay = new Date(year, month, 1);
+        const lastDay = new Date(year, month + 1, 0);
+
+        const days = [];
+        const startDayOfWeek = firstDay.getDay();
+
+        // 이전 달 패딩
+        for (let i = 0; i < startDayOfWeek; i++) {
+          days.push({ type: 'prev', date: null });
+        }
+
+        // 이번 달 일자
+        for (let d = 1; d <= lastDay.getDate(); d++) {
+          const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+          
+          // 학교 일정
+          const schoolEvts = schoolSchedule.filter(s => s.AA_YMD === dateStr.replace(/-/g, ''));
+          
+          // 방학 연속 여부 체크
+          const isVacation = schoolEvts.some(e => e.SBTR_DD_SC_NM?.includes('방학') || e.EVENT_NM?.includes('방학'));
+
+          // 개인 일정
+          const hasPersonal = personalEvents.some(p => p.date === dateStr);
+
+          days.push({
+            type: 'current',
+            dayNum: d,
+            dateStr,
+            schoolEvts,
+            isVacation,
+            hasPersonal
+          });
+        }
+        return days;
+      }, [currentDate, schoolSchedule, personalEvents]);
+
+      const todayStr = new Date().toISOString().split('T')[0];
+
+      return (
+        <div className="min-h-screen pb-12">
+          {/* Toast Notification */}
+          {toast && (
+            <div className="fixed top-20 right-6 z-50 bg-slate-900 text-white px-5 py-3 rounded-xl shadow-xl flex items-center space-x-2 animate-bounce">
+              <i data-lucide="bell" className="w-5 h-5 text-warning"></i>
+              <span className="text-sm font-medium">{toast}</span>
+            </div>
+          )}
+
+          {/* Glassmorphism Header */}
+          <header className="glass-header sticky top-0 z-40 border-b border-slate-200/50 dark:border-slate-700/50 px-6 py-4 transition-colors">
+            <div className="max-w-7xl mx-auto flex items-center justify-between">
+              {/* 좌측: 학교 로고 및 명칭 */}
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-2xl bg-primary text-white flex items-center justify-center font-bold text-lg shadow-md">
+                  🏫
+                </div>
+                <div>
+                  <h1 className="font-bold text-lg leading-tight">
+                    {selectedSchool ? selectedSchool.SCHUL_NM : '학교 정보 포털'}
+                  </h1>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {selectedSchool ? selectedSchool.LCTN_SC_NM : '대한민국 전국 학교통합포털'}
+                  </p>
+                </div>
+              </div>
+
+              {/* 우측: 날짜 & 유틸리티 버튼 */}
+              <div className="flex items-center space-x-3">
+                <span className="hidden md:inline-block text-xs font-semibold px-3 py-1.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                  {new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })}
+                </span>
+
+                {/* 알림 센터 버튼 */}
+                <div className="relative">
+                  <button 
+                    onClick={() => setShowNotifications(!showNotifications)}
+                    className="p-2.5 rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 relative transition-colors"
+                  >
+                    <i data-lucide="bell" className="w-5 h-5"></i>
+                    {notifications.some(n => !n.read) && (
+                      <span className="absolute top-2 right-2 w-2 h-2 bg-danger rounded-full ring-2 ring-white"></span>
+                    )}
+                  </button>
+
+                  {/* 알림 센터 Dropdown */}
+                  {showNotifications && (
+                    <div className="absolute right-0 mt-2 w-80 bg-white dark:bg-slate-800 rounded-card shadow-2xl border border-slate-100 dark:border-slate-700 p-4 z-50">
+                      <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-700">
+                        <h3 className="font-bold text-sm">알림 센터</h3>
+                        <button 
+                          onClick={() => setNotifications(notifications.map(n => ({...n, read: true})))}
+                          className="text-xs text-primary hover:underline"
+                        >
+                          모두 읽음
+                        </button>
+                      </div>
+                      <div className="max-h-64 overflow-y-auto mt-2 space-y-2">
+                        {notifications.length === 0 ? (
+                          <p className="text-xs text-center py-6 text-slate-400">새로운 알림이 없습니다.</p>
+                        ) : (
+                          notifications.map(n => (
+                            <div key={n.id} className={`p-2.5 rounded-xl text-xs ${n.read ? 'bg-slate-50 dark:bg-slate-900/50 opacity-60' : 'bg-blue-50/50 dark:bg-slate-700/50 font-medium'}`}>
+                              <div className="flex justify-between text-slate-500 mb-1">
+                                <span>{n.title}</span>
+                                <span>{n.time}</span>
+                              </div>
+                              <p className="text-slate-800 dark:text-slate-200">{n.body}</p>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 다크모드 버튼 */}
+                <button 
+                  onClick={() => setDarkMode(!darkMode)}
+                  className="p-2.5 rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors"
+                >
+                  <i data-lucide={darkMode ? "sun" : "moon"} className="w-5 h-5"></i>
+                </button>
+
+                {/* 설정 버튼 */}
+                <button 
+                  onClick={() => setShowSettings(!showSettings)}
+                  className="p-2.5 rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors"
+                >
+                  <i data-lucide="settings" className="w-5 h-5"></i>
+                </button>
+              </div>
+            </div>
+          </header>
+
+          <main className="max-w-7xl mx-auto px-6 mt-6 space-y-6">
+
+            {/* 설정 패널 모달 */}
+            {showSettings && (
+              <div className="bg-white dark:bg-slate-800 rounded-card p-6 shadow-soft border border-slate-100 dark:border-slate-700">
+                <h3 className="font-bold text-base mb-2">⚙️ NICE Open API Key 설정</h3>
+                <p className="text-xs text-slate-500 mb-4">나이스 교육정보 개방 포털에서 발급받은 API Key를 입력하세요.</p>
+                <div className="flex gap-3 max-w-md">
+                  <input 
+                    type="password" 
+                    value={apiKey} 
+                    onChange={(e) => setApiKey(e.target.value)}
+                    placeholder="NICE Open API Key" 
+                    className="flex-1 px-4 py-2.5 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-primary"
+                  />
+                  <button 
+                    onClick={() => {
+                      localStorage.setItem('NEIS_API_KEY', apiKey);
+                      showToast('API Key가 저장되었습니다.');
+                      setShowSettings(false);
+                    }}
+                    className="px-5 py-2.5 bg-primary text-white text-sm font-semibold rounded-xl hover:bg-blue-700 transition"
+                  >
+                    저장
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* 상단: 학교 검색 카드 */}
+            <div className="bg-white dark:bg-slate-800 rounded-card p-6 shadow-soft border border-slate-100 dark:border-slate-700">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 mb-1.5">교육청 선택</label>
+                  <select 
+                    value={selectedOffice} 
+                    onChange={(e) => setSelectedOffice(e.target.value)}
+                    className="w-full px-4 py-2.5 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-primary"
+                  >
+                    {EDUCATION_OFFICES.map(office => (
+                      <option key={office.code} value={office.code}>{office.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-semibold text-slate-500 mb-1.5">학교 검색</label>
+                  <div className="flex gap-2">
+                    <input 
+                      type="text" 
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleSchoolSearch()}
+                      placeholder="학교명을 입력하세요 (예: 한빛고등학교)" 
+                      className="flex-1 px-4 py-2.5 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-primary"
+                    />
+                    <button 
+                      onClick={handleSchoolSearch}
+                      className="px-6 py-2.5 bg-primary text-white text-sm font-semibold rounded-xl hover:bg-blue-700 transition flex items-center space-x-2"
+                    >
+                      <i data-lucide="search" className="w-4 h-4"></i>
+                      <span>검색</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* 검색 결과 Dropdown / List */}
+              {schoolList.length > 0 && (
+                <div className="mt-4 border-t border-slate-100 dark:border-slate-700 pt-3 grid grid-cols-1 md:grid-cols-2 gap-2 max-h-48 overflow-y-auto">
+                  {schoolList.map(sch => (
+                    <button 
+                      key={sch.SD_SCHUL_CODE}
+                      onClick={() => selectSchool(sch)}
+                      className="p-3 text-left rounded-xl hover:bg-blue-50 dark:hover:bg-slate-700/50 border border-slate-100 dark:border-slate-700 transition"
+                    >
+                      <div className="font-semibold text-sm">{sch.SCHUL_NM}</div>
+                      <div className="text-xs text-slate-500">{sch.ORG_RDNMA}</div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* 2열 / 3열 메인 대시보드 Layout */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+              {/* 좌측 (7열): 월간 학사일정 Calendar */}
+              <div className="lg:col-span-7 bg-white dark:bg-slate-800 rounded-card p-6 shadow-soft border border-slate-100 dark:border-slate-700 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-3">
+                    <h2 className="font-bold text-lg">📅 월간 학사일정</h2>
+                    <button 
+                      onClick={() => setShowPersonalModal(true)}
+                      className="text-xs bg-blue-50 dark:bg-slate-700 text-primary font-semibold px-3 py-1.5 rounded-full border border-blue-200 dark:border-slate-600 hover:bg-blue-100 transition"
+                    >
+                      + 개인 일정 추가
+                    </button>
+                  </div>
+                  
+                  {/* 월 이동 네비게이션 */}
+                  <div className="flex items-center space-x-2">
+                    <button 
+                      onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1))}
+                      className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700"
+                    >
+                      <i data-lucide="chevron-left" className="w-5 h-5"></i>
+                    </button>
+                    <span className="font-bold text-sm">
+                      {currentDate.getFullYear()}년 {currentDate.getMonth() + 1}월
+                    </span>
+                    <button 
+                      onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1))}
+                      className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700"
+                    >
+                      <i data-lucide="chevron-right" className="w-5 h-5"></i>
+                    </button>
+                  </div>
+                </div>
+
+                {/* 범례 표시 */}
+                <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 pt-2 border-t border-slate-100 dark:border-slate-700">
+                  <span className="flex items-center space-x-1"><span className="w-2 h-2 rounded-full bg-danger"></span><span>대체공휴일</span></span>
+                  <span className="flex items-center space-x-1"><span className="w-2 h-2 rounded-full bg-secondary"></span><span>재량휴업일</span></span>
+                  <span className="flex items-center space-x-1"><span className="w-2 h-2 rounded-full bg-warning"></span><span>방학</span></span>
+                  <span className="flex items-center space-x-1"><span className="w-2 h-2 rounded-full bg-success"></span><span>별도일정</span></span>
+                  <span className="flex items-center space-x-1 px-2 py-0.5 rounded bg-personalBg text-slate-700 text-[10px] font-medium"><span>개인일정 (셀 배경)</span></span>
+                </div>
+
+                {/* 캘린더 Grid */}
+                <div className="grid grid-cols-7 gap-1 text-center font-semibold text-xs text-slate-400 py-2">
+                  <span className="text-danger">일</span>
+                  <span>월</span><span>화</span><span>수</span><span>목</span><span>금</span>
+                  <span className="text-blue-500">토</span>
+                </div>
+
+                <div className="grid grid-cols-7 gap-1.5">
+                  {calendarDays.map((item, idx) => {
+                    if (item.type === 'prev') {
+                      return <div key={idx} className="h-16 rounded-xl bg-slate-50/50 dark:bg-slate-900/20"></div>;
+                    }
+
+                    const isToday = item.dateStr === todayStr;
+                    const isSelected = item.dateStr === selectedDateStr;
+
+                    return (
+                      <div 
+                        key={idx}
+                        onClick={() => setSelectedDateStr(item.dateStr)}
+                        className={`h-16 p-1.5 rounded-xl border text-left cursor-pointer transition-all flex flex-col justify-between relative overflow-hidden
+                          ${isToday 
+                            ? 'bg-charcoal text-white font-bold border-charcoal shadow-md ring-2 ring-slate-400' 
+                            : item.hasPersonal 
+                              ? 'bg-personalBg border-blue-200 text-slate-800' 
+                              : 'bg-slate-50/80 dark:bg-slate-900/50 border-slate-100 dark:border-slate-700/60'
+                          }
+                          ${isSelected && !isToday ? 'ring-2 ring-primary border-transparent' : ''}
+                        `}
+                      >
+                        <div className="flex justify-between items-center">
+                          <span className={`text-xs ${isToday ? 'text-white' : ''}`}>
+                            {item.dayNum}
+                          </span>
+                          {/* 오늘 날짜에 개인 일정이 있는 경우 배지 표시 */}
+                          {isToday && item.hasPersonal && (
+                            <span className="text-[9px] bg-blue-500 text-white px-1 rounded">내 일정</span>
+                          )}
+                        </div>
+
+                        {/* 학교 일정 점 표시 */}
+                        <div className="flex items-center space-x-1 flex-wrap">
+                          {item.isVacation && <span className="w-2 h-2 rounded-full bg-warning" title="방학"></span>}
+                          {item.schoolEvts.map((e, evIdx) => {
+                            let dotColor = 'bg-success';
+                            if (e.SBTR_DD_SC_NM?.includes('휴업')) dotColor = 'bg-secondary';
+                            if (e.SBTR_DD_SC_NM?.includes('공휴일')) dotColor = 'bg-danger';
+                            return <span key={evIdx} className={`w-2 h-2 rounded-full ${dotColor}`}></span>;
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* 선택한 날짜 상세 일정 카드 */}
+                <div className="mt-4 p-4 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-700">
+                  <h4 className="font-bold text-sm mb-2 text-slate-700 dark:text-slate-300">
+                    📌 {selectedDateStr} 상세 일정
+                  </h4>
+                  <div className="space-y-2">
+                    {/* 학교 일정 */}
+                    {schoolSchedule.filter(s => s.AA_YMD === selectedDateStr.replace(/-/g, '')).map((e, i) => (
+                      <div key={i} className="flex items-center justify-between text-xs p-2 bg-white dark:bg-slate-800 rounded-lg shadow-sm">
+                        <span className="font-semibold text-primary">[학교] {e.EVENT_NM}</span>
+                        <span className="text-slate-400">{e.SBTR_DD_SC_NM || '일반일정'}</span>
+                      </div>
+                    ))}
+
+                    {/* 개인 일정 */}
+                    {personalEvents.filter(p => p.date === selectedDateStr).map((p, i) => (
+                      <div key={i} className="flex items-center justify-between text-xs p-2 bg-blue-50 dark:bg-slate-800/80 rounded-lg border border-blue-100 dark:border-slate-700">
+                        <div>
+                          <span className="font-bold text-blue-700 dark:text-blue-300">[개인] {p.title}</span>
+                          {p.memo && <p className="text-[11px] text-slate-500">{p.memo}</p>}
+                        </div>
+                        <button 
+                          onClick={() => setPersonalEvents(personalEvents.filter(evt => evt.id !== p.id))}
+                          className="text-danger hover:underline text-[10px]"
+                        >
+                          삭제
+                        </button>
+                      </div>
+                    ))}
+
+                    {schoolSchedule.filter(s => s.AA_YMD === selectedDateStr.replace(/-/g, '')).length === 0 &&
+                     personalEvents.filter(p => p.date === selectedDateStr).length === 0 && (
+                      <p className="text-xs text-slate-400">등록된 일정이 없습니다.</p>
+                     )}
+                  </div>
+                </div>
+              </div>
+
+              {/* 우측 (5열): 이번 주 급식 카드 (Meal Cards) */}
+              <div className="lg:col-span-5 bg-white dark:bg-slate-800 rounded-card p-6 shadow-soft border border-slate-100 dark:border-slate-700 space-y-4">
+                <h2 className="font-bold text-lg">🍱 이번 주 급식</h2>
+
+                <div className="space-y-3 max-h-[620px] overflow-y-auto pr-1">
+                  {weeklyMeals.length === 0 ? (
+                    <div className="text-center py-12 text-slate-400 text-xs">
+                      급식 정보가 없거나 학교를 먼저 선택해주세요.
+                    </div>
+                  ) : (
+                    weeklyMeals.map((meal, idx) => {
+                      const isTodayMeal = meal.MLSV_YMD === todayStr.replace(/-/g, '');
+                      const dayColors = ['border-dayMon', 'border-dayTue', 'border-dayWed', 'border-dayThu', 'border-dayFri'];
+                      const borderColor = dayColors[idx % 5];
+
+                      const dishes = meal.DDISH_NM.split('<br/>');
+
+                      return (
+                        <div 
+                          key={idx}
+                          className={`p-4 rounded-2xl border-l-4 ${borderColor} bg-slate-50/60 dark:bg-slate-900/40 shadow-sm relative transition hover:shadow-md`}
+                        >
+                          {/* 오늘 급식 TODAY Badge */}
+                          {isTodayMeal && (
+                            <span className="absolute top-3 right-3 bg-warning text-slate-900 font-extrabold text-[10px] px-2 py-0.5 rounded-full shadow">
+                              ⭐ TODAY
+                            </span>
+                          )}
+
+                          <div className="flex justify-between items-center mb-2">
+                            <span className="font-bold text-sm text-slate-700 dark:text-slate-200">
+                              {meal.MLSV_YMD.replace(/(\d{4})(\d{2})(\d{2})/, '$1.$2.$3')}
+                            </span>
+                            <span className="text-xs text-slate-400 font-medium">{meal.CAL_INFO}</span>
+                          </div>
+
+                          {/* 메뉴 리스트 & 즐겨찾기 하이라이트 */}
+                          <div className="space-y-1 mt-2">
+                            {dishes.map((dish, dIdx) => {
+                              const cleanDish = dish.replace(/[0-9.()]/g, '').trim();
+                              const isFav = favoriteMeals.includes(cleanDish);
+
+                              return (
+                                <div 
+                                  key={dIdx} 
+                                  className={`flex items-center justify-between text-xs py-1 px-2 rounded-lg transition ${
+                                    isFav ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-900 dark:text-yellow-200 border-l-2 border-warning font-bold' : ''
+                                  }`}
+                                >
+                                  <span>{dish}</span>
+                                  <button 
+                                    onClick={() => toggleFavoriteMeal(dish)}
+                                    className="text-slate-300 hover:text-warning"
+                                  >
+                                    ★
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+            </div>
+
+            {/* 하단: 학교 기본 정보 카드 */}
+            {selectedSchool && (
+              <div className="bg-white dark:bg-slate-800 rounded-card p-6 shadow-soft border border-slate-100 dark:border-slate-700">
+                <h3 className="font-bold text-base mb-4 flex items-center space-x-2">
+                  <span>🏫 학교 기본 정보</span>
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                  <div className="p-3 bg-slate-50 dark:bg-slate-900 rounded-xl">
+                    <span className="text-slate-400 block mb-1">학교명 / 코드</span>
+                    <span className="font-semibold text-slate-700 dark:text-slate-200">{selectedSchool.SCHUL_NM} ({selectedSchool.SD_SCHUL_CODE})</span>
+                  </div>
+                  <div className="p-3 bg-slate-50 dark:bg-slate-900 rounded-xl">
+                    <span className="text-slate-400 block mb-1">관할 교육청</span>
+                    <span className="font-semibold text-slate-700 dark:text-slate-200">{selectedSchool.ATPT_OFCDC_SC_NM}</span>
+                  </div>
+                  <div className="p-3 bg-slate-50 dark:bg-slate-900 rounded-xl">
+                    <span className="text-slate-400 block mb-1">도로명 주소</span>
+                    <span className="font-semibold text-slate-700 dark:text-slate-200">{selectedSchool.ORG_RDNMA || '정보 없음'}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+          </main>
+
+          {/* 개인 일정 등록 모달 */}
+          {showPersonalModal && (
+            <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-white dark:bg-slate-800 rounded-card p-6 max-w-md w-full shadow-2xl space-y-4">
+                <h3 className="font-bold text-base">📌 개인 일정 등록</h3>
+                <form onSubmit={handleAddPersonalEvent} className="space-y-3 text-xs">
+                  <div>
+                    <label className="block mb-1 font-medium">일정 제목</label>
+                    <input name="title" required placeholder="예: 수학 수행평가" className="w-full px-3 py-2 border rounded-xl dark:bg-slate-900 dark:border-slate-700" />
+                  </div>
+                  <div>
+                    <label className="block mb-1 font-medium">날짜</label>
+                    <input type="date" name="date" required defaultValue={selectedDateStr} className="w-full px-3 py-2 border rounded-xl dark:bg-slate-900 dark:border-slate-700" />
+                  </div>
+                  <div>
+                    <label className="block mb-1 font-medium">메모(선택)</label>
+                    <textarea name="memo" placeholder="준비물 및 노트 내용" className="w-full px-3 py-2 border rounded-xl dark:bg-slate-900 dark:border-slate-700"></textarea>
+                  </div>
+                  
+                  {/* 알림 옵션 */}
+                  <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-700">
+                    <label className="flex items-center space-x-2">
+                      <input type="checkbox" name="notifyPrev" defaultChecked className="rounded text-primary" />
+                      <span>하루 전 알림 (오전 9:00)</span>
+                    </label>
+                    <label className="flex items-center space-x-2">
+                      <input type="checkbox" name="notifyToday" defaultChecked className="rounded text-primary" />
+                      <span>당일 알림 (오전 8:00)</span>
+                    </label>
+                  </div>
+
+                  <div className="flex justify-end space-x-2 pt-4">
+                    <button type="button" onClick={() => setShowPersonalModal(false)} className="px-4 py-2 bg-slate-100 dark:bg-slate-700 rounded-xl">취소</button>
+                    <button type="submit" className="px-4 py-2 bg-primary text-white rounded-xl font-bold">등록</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
